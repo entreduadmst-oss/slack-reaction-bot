@@ -1,27 +1,28 @@
 module.exports = async function handler(req, res) {
   try {
+    // POST以外は無視
     if (req.method !== 'POST') {
       return res.status(200).send('ok');
     }
 
     const body = req.body;
 
-    // Slack URL verification
+    // SlackのURL検証
     if (body.type === 'url_verification') {
       return res.status(200).json({ challenge: body.challenge });
     }
 
-    // reactionイベントのみ処理
+    // イベント処理
     if (body.type === 'event_callback') {
       const event = body.event;
 
-      // reaction_added以外は無視
+      // reaction_addedのみ処理
       if (event.type !== 'reaction_added') {
         return res.status(200).send('ok');
       }
 
-      // :us: 以外は無視
-      if (event.reaction !== 'us') {
+      // :flag-us: のときだけ動作
+      if (event.reaction !== 'flag-us') {
         return res.status(200).send('ok');
       }
 
@@ -33,7 +34,7 @@ module.exports = async function handler(req, res) {
       const deeplApiBase = process.env.DEEPL_API_BASE || 'https://api-free.deepl.com';
 
       // 元メッセージ取得
-      const message = await fetch('https://slack.com/api/conversations.history', {
+      const historyRes = await fetch('https://slack.com/api/conversations.history', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -45,16 +46,29 @@ module.exports = async function handler(req, res) {
           inclusive: true,
           limit: 1
         })
-      }).then(res => res.json());
+      });
 
-      if (!message.ok || !message.messages.length) {
+      const historyData = await historyRes.json();
+
+      if (!historyData.ok || !historyData.messages.length) {
         return res.status(200).send('ok');
       }
 
-      const originalText = message.messages[0].text;
+      const message = historyData.messages[0];
 
-      // 翻訳
-      const translation = await fetch(`${deeplApiBase}/v2/translate`, {
+      // Bot投稿は無視（無限ループ防止）
+      if (message.bot_id || message.subtype === 'bot_message') {
+        return res.status(200).send('ok');
+      }
+
+      const originalText = message.text;
+
+      if (!originalText) {
+        return res.status(200).send('ok');
+      }
+
+      // DeepL翻訳（英語）
+      const deeplRes = await fetch(`${deeplApiBase}/v2/translate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -64,13 +78,15 @@ module.exports = async function handler(req, res) {
           text: [originalText],
           target_lang: 'EN'
         })
-      }).then(res => res.json());
+      });
 
-      if (!translation.translations) {
+      const deeplData = await deeplRes.json();
+
+      if (!deeplData.translations || !deeplData.translations.length) {
         return res.status(200).send('ok');
       }
 
-      const translatedText = translation.translations[0].text;
+      const translatedText = deeplData.translations[0].text;
 
       // スレッド返信
       await fetch('https://slack.com/api/chat.postMessage', {
@@ -92,7 +108,7 @@ module.exports = async function handler(req, res) {
     return res.status(200).send('ok');
 
   } catch (error) {
-    console.error(error);
+    console.error('ERROR:', error);
     return res.status(200).send('ok');
   }
 };
