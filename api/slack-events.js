@@ -50,6 +50,7 @@ module.exports = async function handler(req, res) {
     console.log('TS:', ts);
     console.log('HAS SLACK TOKEN:', !!slackBotToken);
     console.log('HAS DEEPL KEY:', !!deeplApiKey);
+    console.log('DEEPL BASE:', deeplApiBase);
 
     // 元メッセージ取得
     const historyRes = await fetch('https://slack.com/api/conversations.history', {
@@ -102,8 +103,16 @@ module.exports = async function handler(req, res) {
       })
     });
 
-    const deeplData = await deeplRes.json();
-    console.log('DEEPL:', JSON.stringify(deeplData));
+    const deeplText = await deeplRes.text();
+    console.log('DEEPL STATUS:', deeplRes.status);
+    console.log('DEEPL RAW RESPONSE:', deeplText);
+
+    let deeplData = {};
+    try {
+      deeplData = JSON.parse(deeplText);
+    } catch (e) {
+      console.log('DEEPL JSON PARSE FAILED');
+    }
 
     if (!deeplData.translations || deeplData.translations.length === 0) {
       console.log('stop: translation failed');
